@@ -1,0 +1,91 @@
+---
+title: 'Capstone project in Natural Language Processing'
+author: "Ariel Lev, 07. July 2015"
+output: 
+  html_document:
+    keep_md: true
+    css: style.css
+    pandoc_args: [
+      "+RTS", "-K64m",
+      "-RTS"
+    ]    
+---
+```{r, echo=F, fig.width=12, fig.height=4, message=F, warning=F}
+#require(ggplot2)
+#require(knitr)
+#require(XML)
+#require(dplyr)
+
+#library(NLP)
+#library(openNLP)
+#library(RWeka)
+
+# download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip", method="curl", destfile="swiftKey.zip")
+# downloaded Di  7 Jul 2015 23:27:21 CEST
+
+require(R.utils)
+```
+
+## Task 1: Data acquisition and cleaning
+Normalization
+```{r, echo=F, fig.width=12, fig.height=4, message=F, warning=F}
+# samples lines from text file X by flipping a coin with a probability p of success
+# the function uses awk to create a sample file on the disk.
+createSamples <- function (X, p, ...) 
+{
+  ## not so good interms of reproducibility. we cannot for example set.seed before
+  ## random takes place.
+  awk <- paste0("awk 'rand() < ", p, " {print $0}' ", X, " > ", X, ".sample")
+  system(awk)
+  paste0(X, ".sample")
+}
+
+tokenize <- function(X) {
+    # removal of urls
+    
+    # alphanumeric tokens removal
+  
+    # punctuation removal
+  
+    # Abbreviations removal....I plan to get a list of things like "lol"
+  
+    # stop words removal - ? I'm afraid too much information loss is involved. 
+    
+    # phonetic corrections
+  
+    # spelling corrections
+  
+    # lower case
+    # applying only to 1st word in each sentence. 
+  
+    # removed consecutive blanks
+  
+    # twitter specific
+    # hash tags
+  
+    # abbreviations
+    # http://www.socialmediatoday.com/social-networks/sarah-snow/2015-07-08/get-out-your-twittonary-twitter-abbreviations-you-must-know
+}
+
+
+profanity_filter <- function(x) {
+  # We would not remove profanity by tampering with the data or filtering the model, as that would be against our goal of making 100% accurate predictions.
+  # So  for a user who often types "what a f-ing joke!", even if we don't show the f-word in the prediction after input = "what a ", we ought to predict "joke"   
+  # after input = "what a f-ing "
+
+}
+
+if (length(Sys.glob("final/en_US/*.sample")) == 0) {
+  filenames <- Sys.glob("final/en_US/*.txt")
+  lapply(filenames, function(x) createSamples(x,.15))
+}
+
+
+```
+
+## Task 2: Exploratory analysis
+
+
+
+## Has the data scientist done basic summaries of the three files? Word counts, line counts and basic data tables?
+## Has the data scientist made basic plots, such as histograms to illustrate features of the data?
