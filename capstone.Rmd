@@ -1,6 +1,6 @@
 ---
 title: 'Capstone project in Natural Language Processing'
-author: "Ariel Lev, 07. July 2015"
+author: "Ariel Lev, 24. July 2015"
 output: 
   html_document:
     keep_md: true
@@ -10,82 +10,258 @@ output:
       "-RTS"
     ]    
 ---
-```{r, echo=F, fig.width=12, fig.height=4, message=F, warning=F}
-#require(ggplot2)
-#require(knitr)
-#require(XML)
-#require(dplyr)
 
-#library(NLP)
-#library(openNLP)
-#library(RWeka)
+This document highlights a roadmap for developing a language model obtained from a corpus called [HC Corpora](www.corpora.heliohost.org)
+```{r, echo=F, message=F, warning=F}
+require(dplyr)
+require(R.utils)
+require(hash)
+require(Matrix)
+require(parallel) 
+require(doParallel)
+require(ggplot2)
+require(knitr)
+require(RWeka)
+require(tm)
+```
 
+##Data acquisition and cleaning
+In order to reduce the running time involved with performing basic string manipulations, I tend to out-source this preliminary taks completely to unix' powerful built-in tools. For example, the following chunk demonstrates how *Awk* can be used to draw a 5% line sample out of an entire text file. The *tr* command accomplishes the task of removing most of the non-alphabetical characters. 
+```{r, echo=F, message=F, warning=F, cache=T,nu}
+print("awk 'rand() < 0.05 {print $0}' input > sample")
+print("tr -sc '[a-zA-Z' .\n]' ' '")
+```
+Only when I had to apply more complex tasks such as filtering or tokenization that I switched to R to utilize libraries such as *Rweka* and *tm*. That will take us to the next topic.
+
+###Framework
+```{r, echo=T, message=F, warning=F, cache=T}
+
+# downloading dataset
 # download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip", method="curl", destfile="swiftKey.zip")
 # downloaded Di  7 Jul 2015 23:27:21 CEST
 
-require(R.utils)
-```
-
-## Task 1: Data acquisition and cleaning
-Normalization
-```{r, echo=F, fig.width=12, fig.height=4, message=F, warning=F}
-# samples lines from text file X by flipping a coin with a probability p of success
-# the function uses awk to create a sample file on the disk.
+# the function samples lines from text file X by flipping a coin with a probability p for success
+# the sample file is written to the disk.
 createSamples <- function (X, p, ...) 
 {
-  ## not so good interms of reproducibility. we cannot for example set.seed before
-  ## random takes place.
   awk <- paste0("awk 'rand() < ", p, " {print $0}' ", X, " > ", X, ".sample")
   system(awk)
   paste0(X, ".sample")
 }
 
-tokenize <- function(X) {
-    # removal of urls
+# basic string manipulations
+cleanup <- function(X) {
+    pipe <-readLines("cleanup", 1)
     
-    # alphanumeric tokens removal
-  
-    # punctuation removal
-  
-    # Abbreviations removal....I plan to get a list of things like "lol"
-  
-    # stop words removal - ? I'm afraid too much information loss is involved. 
-    
-    # phonetic corrections
-  
-    # spelling corrections
-  
-    # lower case
-    # applying only to 1st word in each sentence. 
-  
-    # removed consecutive blanks
-  
-    # twitter specific
-    # hash tags
-  
-    # abbreviations
-    # http://www.socialmediatoday.com/social-networks/sarah-snow/2015-07-08/get-out-your-twittonary-twitter-abbreviations-you-must-know
+    output <- paste0(X, ".cleanup")  
+    command <- paste("cat", X, pipe, ">", output)
+    system(command)
+    output
 }
 
+# script
+readLines("cleanup", n = 1)
+# explanation
+# 1. sed 's/[^ ]*www[^ ]*/ /g'
+# 2. tr "?\!" "."
+# 3. tr -sc "[a-zA-Z' .\n]" " "
+# 4. tr -s ". "
+# 5. gsed -e 's/\.[ ]*\([A-Z]\)/.\L\1/g'
+# 6. sed -e "s/ [a-zA-Z]\([^a-zA-Z]\)/\1/g"
+# 7. sed -e "s/ [^.a-zA-Z][^ ]*/ /g"
+# 8. tr '.' '\n'
+# 9. awk "length($1) > 1 {print $1}"
 
-profanity_filter <- function(x) {
-  # We would not remove profanity by tampering with the data or filtering the model, as that would be against our goal of making 100% accurate predictions.
-  # So  for a user who often types "what a f-ing joke!", even if we don't show the f-word in the prediction after input = "what a ", we ought to predict "joke"   
-  # after input = "what a f-ing "
+# 1. removal of urls
+# 2. Question and exclamation marks terminate sentences like dots do. we can therefore replace them with dots.
+# 3. replace non alphabetic chars but keep apostrophes and dots
+# 4. squeeze dots and spaces
+# 5. using gnu-sed to transform upper to lower case - only for first letter in a sentence
+# 6. removal of single char words
+# 7. removal of words begin with an apostrophe
+# 8. breaking lines on dots
+# 9. removal of empty and single char lines
 
+# the function filters a data vector by eliminating profanity and by checking existence against a dictionary.
+filter <- function( data, profanity = c("*"), dictionary = c("*")) {
+  cluster <- makeCluster(detectCores() - 1)
+  registerDoParallel(cluster)
+  
+  dictionary_hash <- hash(keys = dictionary, values=rep("", length(dictionary))) 
+  profanity_hash <- hash(keys = profanity, values=rep("", length(profanity)))
+
+  filtered <- c()
+  for (i in 1:length(data)) {
+      line <- data[i]
+      split <- unlist(strsplit(line, "[ ]+"))
+
+      idx <- which(nchar(split) > 0)
+      split <- split[idx]
+      
+      if (length(split) > 0) {
+        idx <- which(has.key(split, dictionary_hash))
+        split <- split[idx]
+        
+        idx <- which(!has.key(split, profanity_hash))
+        split <- split[idx]       
+        
+      }
+      
+      split <- paste(split, collapse = " ")
+      filtered[i] <- split
+  }
+  stopCluster(cluster)  
+  filtered[nchar(filtered) > 0]
 }
 
-if (length(Sys.glob("final/en_US/*.sample")) == 0) {
-  filenames <- Sys.glob("final/en_US/*.txt")
-  lapply(filenames, function(x) createSamples(x,.15))
+# The function returns a data frame containing n-grams with their corresponding counts and frequencies in corpus
+tokenize <- function(corpus, n) {
+  
+  tokenizer <- function(x) {NGramTokenizer(x, Weka_control(min = n, max = n))}
+  
+  options(mc.cores=1)
+  cluster <- makeCluster(detectCores() - 1)
+  registerDoParallel(cluster)
+  dtm  <- DocumentTermMatrix(corpus, control = list(tokenize = tokenizer))
+  stopCluster(cluster)
+  
+  sM <- sparseMatrix(i=dtm$i, j = dtm$j, x = dtm$v)
+  dt <- data.frame( term = dtm$dimnames$Terms, count = colSums(sM))
+  dt$freq <- dt$count / sum(dt$count)
+  dt <- dt[order(-dt$freq),]
+  dt
 }
 
+plot_ngrams <- function(ngram, nrows, title, fill) {
+  ngram$term <- factor(ngram$term, levels = ngruam$term)
+  ggplot(head(ngram, nrows), aes(x = term, y = freq, fill=doc)) + geom_bar(stat = "Identity", fill = fill) +  ggtitle(title) + theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.title.x=element_blank(),axis.title.y=element_blank())  
+}
 
+plot_combined <- function(ngrams, title) {
+  ordr <- group_by(ngrams, term) %>% summarize(sum = sum(count)) %>% arrange(desc(sum))
+  ngrams$term <- factor(ngrams$term, levels = ordr$term)
+  ggplot(ngrams, aes(x = term, y = count, fill = doc)) + geom_bar(stat = "Identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.title.x=element_blank(),axis.title.y=element_blank()) + ggtitle(title)
+}
 ```
 
-## Task 2: Exploratory analysis
+### Data Processing
+The following unix command outputs line and word count per data source.  
+"Blogs" contains for example almost 900k lines and over 3.7M words. Total number of lines is approximately 4.26M and word count is around 102M
+```{r, echo=T, fig.width=12, fig.height=4, message=F, warning=F}
+console <- system("find . -name '*en_US*txt' | xargs wc -wl", intern = T)
+for (i in 1:length(console)) print(console[i])
+```
+
+```{r, echo=T, message=F, warning=F, cache=T}
+# creating samples of 2% of the total lines
+samples <- Sys.glob("final/en_US/en_US*.sample")
+if (length(samples) < 3) {
+  input <- Sys.glob("final/en_US/en_US*.txt")
+  samples <- unlist(lapply(input, function(x) createSamples(x,.02)))
+}
+# 
+# cleaning up
+cleaned <- Sys.glob("final/en_US/*.cleanup")
+if (length(cleaned) < 3) {
+  cleaned <- unlist(lapply(samples, function(x) cleanup(x)))
+}
+
+# filter
+profanity <- tolower(readLines("final/en_US/profanity.txt"))
+head(profanity, 30)
+
+dictionary <- tolower(readLines("final/en_US/dictionary.txt"))
+head(dictionary, 30)
+
+# processing documents
+all = list()
+documents <- c("twitter", "blogs", "news")
+colors <- c("deepskyblue", "darkgrey", "gold3")
+
+for (i in 1:length(documents)) {
+  d <- documents[i]
+  raw <- tolower(readLines(sprintf('final/en_US/en_US.%s.txt.sample.cleanup', d)))
+  filtered <- filter(raw, profanity, dictionary)
+  corpus <- Corpus(VectorSource(filtered))
+  
+  # tidying up a bit more
+  corpus <- tm_map(corpus, stripWhitespace)
+  corpus <- tm_map(corpus, PlainTextDocument)
+  
+  unigrams <- tokenize(corpus, 1)
+  unigrams$doc <- d
+  unigrams$colors <- colors[i]
+  
+  bigrams  <- tokenize(corpus, 2)
+  bigrams$doc <- d
+  bigrams$colors <- colors[i]
+
+  trigrams <- tokenize(corpus, 3)
+  trigrams$doc <- d
+  trigrams$colors <- colors[i]
+
+  all[[d]]$corpus <- corpus
+  all[[d]]$unigrams <- unigrams
+  all[[d]]$bigrams <- bigrams
+  all[[d]]$trigrams <- trigrams
+  all[[d]]$color <- colors[i]
+
+}
+```
+
+##Results
+###Total n-grams per document type
+```{r, echo=F, fig.width=12, fig.height=4, message=F, warning=F}
+# total n-grams per document type
+sapply(all, function(x) list( uni = nrow(x$unigrams), bi = nrow(x$bigrams), tri = nrow(x$trigrams)))
+```
+
+Frequencies of terms plotted below reveal more distinctive patterns as n increases.
+```{r, echo=F, fig.width=12, fig.height=8, message=F, warning=F}
+unigrams <- rbind(all$twitter$unigrams[1:40,],all$blogs$unigrams[1:40,],all$news$unigrams[1:40,])
+plot_combined(unigrams, "Frequent unigrams")
+
+bigrams <- rbind(all$twitter$bigrams[1:40,],all$blogs$bigrams[1:40,],all$news$bigrams[1:40,])
+plot_combined(bigrams, "Frequent bigrams")
+
+trigrams <- rbind(all$twitter$trigrams[1:40,],all$blogs$trigrams[1:40,],all$news$trigrams[1:40,])
+plot_combined(trigrams, "Frequent trigrams")
+```
 
 
+```{r, echo=F, fig.width=12, fig.height=4, message=F, warning=F}
+# twitter_unique <- setdiff(all$twitter$unigrams$term, all$blogs$unigrams$term)
+# twitter_unique <- setdiff(twitter_unique, all$news$unigrams$term)
+# 
+# blogs_unique <- setdiff(all$blogs$unigrams$term, all$twitter$unigrams$term)
+# blogs_unique <- setdiff(blogs_unique, all$news$unigrams$term)
+# 
+# news_unique <- setdiff(all$news$unigrams$term, all$twitter$unigrams$term)
+# news_unique <- setdiff(news_unique, all$blogs$unigrams$term)
+# 
+# ## differences in unigrams
+# data.frame(length(twitter_unique), length(blogs_unique), length(news_unique))
+# 
+# head(twitter_unique, 50)
+# head(blogs_unique, 50)
+# head(news_unique, 50)
 
-## Has the data scientist done basic summaries of the three files? Word counts, line counts and basic data tables?
-## Has the data scientist made basic plots, such as histograms to illustrate features of the data?
+# plot_ngrams(unigrams$twitter, 20, "20 most frequent unigrams", "white")
+# plot_ngrams(bigrams$twitter, 20, "20 most frequent bigrams", "white")
+# plot_ngrams(trigrams$twitter, 20, "20 most frequent trigrams", "white")
+# 
+# plot_ngrams(unigrams$blogs, 20, "20 most frequent unigrams", "blue")
+# plot_ngrams(bigrams$blogs, 20, "20 most frequent bigrams", "blue")
+# plot_ngrams(trigrams$blogs, 20, "20 most frequent trigrams", "blue")
+# 
+# plot_ngrams(unigrams$news, 20, "20 most frequent unigrams", "red")
+# plot_ngrams(bigrams$news, 20, "20 most frequent bigrams", "red")
+# plot_ngrams(trigrams$news, 20, "20 most frequent trigrams", "red")
+```
+
+##What's next?
++ Scaling up the sample size from 2% in stages to 5%, 10%, 20% etc..
++ Applying Kneser-Ney smoothing to compute probability
++ Applying Linear interpolation
++ Supporting misspelling: Non-Word Errors, Real-Word Errors
++ Data compression and Data retrieval - using hashs, double hashs etc..
