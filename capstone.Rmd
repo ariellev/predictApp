@@ -23,6 +23,7 @@ require(ggplot2)
 require(knitr)
 require(RWeka)
 require(tm)
+require(stringi)
 ```
 
 ##Data acquisition and cleaning
@@ -87,9 +88,6 @@ filter <- function( data, profanity = c("*"), dictionary = c("*")) {
   cluster <- makeCluster(detectCores() - 1)
   registerDoParallel(cluster)
   
-  dictionary_hash <- hash(keys = dictionary, values=rep("", length(dictionary))) 
-  profanity_hash <- hash(keys = profanity, values=rep("", length(profanity)))
-
   filtered <- c()
   for (i in 1:length(data)) {
       line <- data[i]
@@ -103,8 +101,7 @@ filter <- function( data, profanity = c("*"), dictionary = c("*")) {
         split <- split[idx]
         
         idx <- which(!has.key(split, profanity_hash))
-        split <- split[idx]       
-        
+        split <- split[idx]               
       }
       
       split <- paste(split, collapse = " ")
@@ -115,20 +112,22 @@ filter <- function( data, profanity = c("*"), dictionary = c("*")) {
 }
 
 # The function returns a data frame containing n-grams with their corresponding counts and frequencies in corpus
-tokenize <- function(corpus, n) {
+tokenize <- function(corpus, min, max) {
   
-  tokenizer <- function(x) {NGramTokenizer(x, Weka_control(min = n, max = n))}
+  tokenizer <- function(x) {NGramTokenizer(x, Weka_control(min = min, max = max))}
   
   options(mc.cores=1)
   cluster <- makeCluster(detectCores() - 1)
   registerDoParallel(cluster)
-  dtm  <- DocumentTermMatrix(corpus, control = list(tokenize = tokenizer))
+  dtm  <- DocumentTermMatrix(corpus, control = list(tokenize = tokenizer, wordLengths = c( 1, Inf)))
   stopCluster(cluster)
   
   sM <- sparseMatrix(i=dtm$i, j = dtm$j, x = dtm$v)
-  dt <- data.frame( term = dtm$dimnames$Terms, count = colSums(sM))
-  dt$freq <- dt$count / sum(dt$count)
-  dt <- dt[order(-dt$freq),]
+  dt <- data.frame( term = as.character(dtm$dimnames$Terms), count = colSums(sM))
+  dt$term <- as.character(dt$term)
+  dt$n <- sapply( dt$term, function(x) {length(strsplit(x, "[ ]+")[[1]])})
+  
+  dt <- dt[order(-dt$count),]
   dt
 }
 
@@ -141,6 +140,89 @@ plot_combined <- function(ngrams, title) {
   ordr <- group_by(ngrams, term) %>% summarize(sum = sum(count)) %>% arrange(desc(sum))
   ngrams$term <- factor(ngrams$term, levels = ordr$term)
   ggplot(ngrams, aes(x = term, y = count, fill = doc)) + geom_bar(stat = "Identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.title.x=element_blank(),axis.title.y=element_blank()) + ggtitle(title)
+}
+
+suffix <- function(mStr, n) {
+  if (n == 0) {
+    return (".*")
+  }
+  vector <- unlist(strsplit(mStr, "[ ]+"))  
+  suff <- stri_flatten(vector[(length(vector)-n+1):length(vector)], collapse = " ")
+  suff
+}
+
+
+prefix_str <- function(mStr, n) {
+  sapply(mStr, function(x){ v <- unlist(strsplit(x, "[ ]+")); m <- min(length(v), n); stri_flatten(v[1:m], collapse = " ")})
+}
+
+probability <- function(master, mStr, n) {  
+    suff <- suffix(mStr, n - 1)  
+    idx <- grepl(paste0("^(",suff, " )"), master$term) & master$n == n
+    master[idx, ]
+}
+
+# uses stupid backoff
+backoff <- function(master, prefixes, threshold = 0) {
+  m <- master[master$p > threshold, ]
+  predictions <- list()
+  for (i in 1:length(prefixes)) {
+  df <- data.frame(term = character(), count = numeric(), n = numeric(), prefix = character(), p = numeric(), next_term = character())    
+    prefix <- prefixes[i]
+    vector <- unlist(strsplit(prefix, "[ ]+")) 
+    for (k in 3:1) {
+      a <- probability(m, suffix(prefix,k), k+1)
+      a$p <- a$p*0.4^(3-k)
+      a <- a[a$p > threshold, ]
+      a$next_term <- sapply(a$term, function(x) { v <- unlist(strsplit(x, "[ ]+")); v[length(v)]} )
+      df <- rbind(df, a)
+    }
+    predictions[[i]] <- df
+  }
+  predictions
+}
+
+next_word <- function(master, prefixes, threshold) {
+  l <- backoff(master, prefixes, threshold)
+  lapply(l, function(x) { unique(x$next_term)})
+}
+
+# calculates likelihood using relative frequencies
+MLE <- function(df, df_prefix) {
+  n <- df[1,3]$n
+  total <- sum(df$count)
+  
+  h_counts <- hash(df_prefix$term, df_prefix$count)
+  df$prefix <- prefix_str(df$term, n - 1)
+  
+  # setting deafult value
+  df$p <- total
+  df$p <- sapply(df$prefix, function(x) {d <- h_counts[[x]]; if (!is.null(d)) return(d) else return (-1)})
+  df %>% mutate(p = ifelse(p == -1, -1, count / p))
+}
+
+smooth_add_one_p <- function(df, df_prefix) {  
+  n <- df[1,3] 
+  v <- nrow(df_prefix)  
+  h_counts <- hash(df_prefix$term, df_prefix$count)
+  df$prefix <- prefix_str(df$term, n - 1)
+  df$p <- v
+  df$p <- sapply(df$prefix, function(x) {d <- h_counts[[x]]; if (!is.null(d)) return(d) else return (-1)})
+  df %>% mutate(p = ifelse(p == -1, -1, (count + 1) / (p + v) ))  
+}
+
+smooth_add_one_count <- function(df) {  
+  N <- sum(df$count)
+  df$count_add_1 <- (N * (df$count + 1)) / (N+nrow(df))
+  df
+}
+
+smooth_witten_bell <- function(df) {
+  df
+}
+
+smooth_good_turing <- function(df) {
+  df
 }
 ```
 
@@ -157,7 +239,7 @@ for (i in 1:length(console)) print(console[i])
 samples <- Sys.glob("final/en_US/en_US*.sample")
 if (length(samples) < 3) {
   input <- Sys.glob("final/en_US/en_US*.txt")
-  samples <- unlist(lapply(input, function(x) createSamples(x,.02)))
+  samples <- unlist(lapply(input, function(x) createSamples(x,.05)))
 }
 # 
 # cleaning up
@@ -169,9 +251,11 @@ if (length(cleaned) < 3) {
 # filter
 profanity <- tolower(readLines("final/en_US/profanity.txt"))
 head(profanity, 30)
+profanity_hash <- hash(keys = profanity, values=rep("", length(profanity)))
 
 dictionary <- tolower(readLines("final/en_US/dictionary.txt"))
 head(dictionary, 30)
+dictionary_hash <- hash(keys = dictionary, values=rep("", length(dictionary))) 
 
 # processing documents
 all = list()
@@ -181,29 +265,34 @@ colors <- c("deepskyblue", "darkgrey", "gold3")
 for (i in 1:length(documents)) {
   d <- documents[i]
   raw <- tolower(readLines(sprintf('final/en_US/en_US.%s.txt.sample.cleanup', d)))
-  filtered <- filter(raw, profanity, dictionary)
+  filtered <- filter(raw, profanity_hash, dictionary_hash)
   corpus <- Corpus(VectorSource(filtered))
   
   # tidying up a bit more
   corpus <- tm_map(corpus, stripWhitespace)
   corpus <- tm_map(corpus, PlainTextDocument)
   
-  unigrams <- tokenize(corpus, 1)
-  unigrams$doc <- d
-  unigrams$colors <- colors[i]
+  tokenized <- tokenize(corpus, 1, 4)
   
-  bigrams  <- tokenize(corpus, 2)
+  unigrams <- tokenized[tokenized$n == 1, ]
+  bigrams <- tokenized[tokenized$n == 2, ]
+  trigrams <- tokenized[tokenized$n == 3, ]
+  quadrigrams <- tokenized[tokenized$n == 4, ]
+  
+  unigrams$doc <- d
+  unigrams$colors <- colors[i]  
   bigrams$doc <- d
   bigrams$colors <- colors[i]
-
-  trigrams <- tokenize(corpus, 3)
   trigrams$doc <- d
   trigrams$colors <- colors[i]
+  quadrigrams$doc <- d
+  quadrigrams$colors <- colors[i]
 
   all[[d]]$corpus <- corpus
   all[[d]]$unigrams <- unigrams
   all[[d]]$bigrams <- bigrams
   all[[d]]$trigrams <- trigrams
+  all[[d]]$quadrigrams <- quadrigrams  
   all[[d]]$color <- colors[i]
 
 }
@@ -230,35 +319,54 @@ plot_combined(trigrams, "Frequent trigrams")
 
 
 ```{r, echo=F, fig.width=12, fig.height=4, message=F, warning=F}
-# twitter_unique <- setdiff(all$twitter$unigrams$term, all$blogs$unigrams$term)
-# twitter_unique <- setdiff(twitter_unique, all$news$unigrams$term)
-# 
-# blogs_unique <- setdiff(all$blogs$unigrams$term, all$twitter$unigrams$term)
-# blogs_unique <- setdiff(blogs_unique, all$news$unigrams$term)
-# 
-# news_unique <- setdiff(all$news$unigrams$term, all$twitter$unigrams$term)
-# news_unique <- setdiff(news_unique, all$blogs$unigrams$term)
-# 
-# ## differences in unigrams
-# data.frame(length(twitter_unique), length(blogs_unique), length(news_unique))
-# 
-# head(twitter_unique, 50)
-# head(blogs_unique, 50)
-# head(news_unique, 50)
 
-# plot_ngrams(unigrams$twitter, 20, "20 most frequent unigrams", "white")
-# plot_ngrams(bigrams$twitter, 20, "20 most frequent bigrams", "white")
-# plot_ngrams(trigrams$twitter, 20, "20 most frequent trigrams", "white")
-# 
-# plot_ngrams(unigrams$blogs, 20, "20 most frequent unigrams", "blue")
-# plot_ngrams(bigrams$blogs, 20, "20 most frequent bigrams", "blue")
-# plot_ngrams(trigrams$blogs, 20, "20 most frequent trigrams", "blue")
-# 
-# plot_ngrams(unigrams$news, 20, "20 most frequent unigrams", "red")
-# plot_ngrams(bigrams$news, 20, "20 most frequent bigrams", "red")
-# plot_ngrams(trigrams$news, 20, "20 most frequent trigrams", "red")
+unigrams <- rbind(all$twitter$unigrams, all$news$unigrams, all$blogs$unigrams)
+bigrams <- rbind(all$twitter$bigrams, all$news$bigrams, all$blogs$bigrams)
+trigrams <- rbind(all$twitter$trigrams, all$news$trigrams, all$blogs$trigrams)
+quadrigrams <- rbind(all$twitter$quadrigrams, all$news$quadrigrams, all$blogs$quadrigrams)
+
+gu <- group_by(unigrams, term) %>% summarize(count = sum(count), n = 1) %>% arrange(desc(count))
+gb <- group_by(bigrams, term) %>% summarize(count = sum(count), n = 2) %>% arrange(desc(count))
+gt <- group_by(trigrams, term) %>% summarize(count = sum(count), n = 3) %>% arrange(desc(count))
+gq <- group_by(quadrigrams, term) %>% summarize(count = sum(count), n = 4) %>% arrange(desc(count))
+
+gu$prefix <- ""
+gu$p <- gu$count / sum(gu$count)
+
+gb <- relative_frequencies(df = gb, df_prefix = gu)
+gt <- relative_frequencies(df = gt, df_prefix = gb)
+gq <- relative_frequencies(df = gq, df_prefix = gt)
+
+
+write.table(gu, file="gu", row.names = F)
+write.table(gb, file="gb", row.names = F)
+write.table(gt, file="gt", row.names = F)
+write.table(gq, file="gq", row.names = F)
+
+master <- rbind(gu, gb, gt, gq)
+write.table(master, file="master", row.names = F)
+
+rm(gu)
+rm(gb)
+rm(gt)
+rm(gq)
+
 ```
 
+```{r, echo=T, message=F, warning=F, cache=T}
+# quiz3
+
+evaluate_quiz <- function(master, quiz, threshold = 0.01) {
+  l <- next_word(master, quiz[,1], 0.001)
+  vector <- rep(NA, nrow(quiz))
+  for (i in 1:nrow(quiz3)) {
+    vector[i] <- paste(intersect(l[[i]], c(quiz[i,2], quiz[i,3], quiz[i,4], quiz[i,5])), collapse = " ")
+  }
+  vector
+}
+quiz3 <- read.csv("quiz3", stringsAsFactors = F, header = T, sep=";")
+evaluate_quiz(master, quiz3, threshold = 0.01)
+```
 ##What's next?
 + Scaling up the sample size from 2% in stages to 5%, 10%, 20% etc..
 + Applying Kneser-Ney smoothing to compute probability

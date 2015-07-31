@@ -1,0 +1,1 @@
+| sed 's/[^ ]*www[^ ]*/ /g' | tr "?\!" "." | sed "s/[^ ]*[^a-zA-Z .'][^ ]*//g" | tr -s ". " | gsed -e 's/\.[ ]*\([A-Z]\)/.\L\1/g' | sed -e "s/ [a-zA-Z]\([^a-zA-Z]\)/\1/g" | sed -e "s/ [^.a-zA-Z][^ ]*/ /g" | tr '.' '\n' | awk "length($1) > 1 {print $1}"
