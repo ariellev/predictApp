@@ -24,6 +24,8 @@ require(knitr)
 require(RWeka)
 require(tm)
 require(stringi)
+
+source("nlp.R")
 ```
 
 ##Data acquisition and cleaning
@@ -83,53 +85,7 @@ readLines("cleanup", n = 1)
 # 8. breaking lines on dots
 # 9. removal of empty and single char lines
 
-# the function filters a data vector by eliminating profanity and by checking existence against a dictionary.
-filter <- function( data, profanity = c("*"), dictionary = c("*")) {
-  cluster <- makeCluster(detectCores() - 1)
-  registerDoParallel(cluster)
-  
-  filtered <- c()
-  for (i in 1:length(data)) {
-      line <- data[i]
-      split <- unlist(strsplit(line, "[ ]+"))
 
-      idx <- which(nchar(split) > 0)
-      split <- split[idx]
-      
-      if (length(split) > 0) {
-        idx <- which(has.key(split, dictionary_hash))
-        split <- split[idx]
-        
-        idx <- which(!has.key(split, profanity_hash))
-        split <- split[idx]               
-      }
-      
-      split <- paste(split, collapse = " ")
-      filtered[i] <- split
-  }
-  stopCluster(cluster)  
-  filtered[nchar(filtered) > 0]
-}
-
-# The function returns a data frame containing n-grams with their corresponding counts and frequencies in corpus
-tokenize <- function(corpus, min, max) {
-  
-  tokenizer <- function(x) {NGramTokenizer(x, Weka_control(min = min, max = max))}
-  
-  options(mc.cores=1)
-  cluster <- makeCluster(detectCores() - 1)
-  registerDoParallel(cluster)
-  dtm  <- DocumentTermMatrix(corpus, control = list(tokenize = tokenizer, wordLengths = c( 1, Inf)))
-  stopCluster(cluster)
-  
-  sM <- sparseMatrix(i=dtm$i, j = dtm$j, x = dtm$v)
-  dt <- data.frame( term = as.character(dtm$dimnames$Terms), count = colSums(sM))
-  dt$term <- as.character(dt$term)
-  dt$n <- sapply( dt$term, function(x) {length(strsplit(x, "[ ]+")[[1]])})
-  
-  dt <- dt[order(-dt$count),]
-  dt
-}
 
 plot_ngrams <- function(ngram, nrows, title, fill) {
   ngram$term <- factor(ngram$term, levels = ngruam$term)
@@ -142,74 +98,6 @@ plot_combined <- function(ngrams, title) {
   ggplot(ngrams, aes(x = term, y = count, fill = doc)) + geom_bar(stat = "Identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.title.x=element_blank(),axis.title.y=element_blank()) + ggtitle(title)
 }
 
-suffix <- function(mStr, n) {
-  if (n == 0) {
-    return (".*")
-  }
-  vector <- unlist(strsplit(mStr, "[ ]+"))  
-  suff <- stri_flatten(vector[(length(vector)-n+1):length(vector)], collapse = " ")
-  suff
-}
-
-
-prefix_str <- function(mStr, n) {
-  sapply(mStr, function(x){ v <- unlist(strsplit(x, "[ ]+")); m <- min(length(v), n); stri_flatten(v[1:m], collapse = " ")})
-}
-
-probability <- function(master, mStr, n) {  
-    suff <- suffix(mStr, n - 1)  
-    idx <- grepl(paste0("^(",suff, " )"), master$term) & master$n == n
-    master[idx, ]
-}
-
-# uses stupid backoff
-backoff <- function(master, prefixes, threshold = 0) {
-  m <- master[master$p > threshold, ]
-  predictions <- list()
-  for (i in 1:length(prefixes)) {
-  df <- data.frame(term = character(), count = numeric(), n = numeric(), prefix = character(), p = numeric(), next_term = character())    
-    prefix <- prefixes[i]
-    vector <- unlist(strsplit(prefix, "[ ]+")) 
-    for (k in 3:1) {
-      a <- probability(m, suffix(prefix,k), k+1)
-      a$p <- a$p*0.4^(3-k)
-      a <- a[a$p > threshold, ]
-      a$next_term <- sapply(a$term, function(x) { v <- unlist(strsplit(x, "[ ]+")); v[length(v)]} )
-      df <- rbind(df, a)
-    }
-    predictions[[i]] <- df
-  }
-  predictions
-}
-
-next_word <- function(master, prefixes, threshold) {
-  l <- backoff(master, prefixes, threshold)
-  lapply(l, function(x) { unique(x$next_term)})
-}
-
-# calculates likelihood using relative frequencies
-MLE <- function(df, df_prefix) {
-  n <- df[1,3]$n
-  total <- sum(df$count)
-  
-  h_counts <- hash(df_prefix$term, df_prefix$count)
-  df$prefix <- prefix_str(df$term, n - 1)
-  
-  # setting deafult value
-  df$p <- total
-  df$p <- sapply(df$prefix, function(x) {d <- h_counts[[x]]; if (!is.null(d)) return(d) else return (-1)})
-  df %>% mutate(p = ifelse(p == -1, -1, count / p))
-}
-
-smooth_add_one_p <- function(df, df_prefix) {  
-  n <- df[1,3] 
-  v <- nrow(df_prefix)  
-  h_counts <- hash(df_prefix$term, df_prefix$count)
-  df$prefix <- prefix_str(df$term, n - 1)
-  df$p <- v
-  df$p <- sapply(df$prefix, function(x) {d <- h_counts[[x]]; if (!is.null(d)) return(d) else return (-1)})
-  df %>% mutate(p = ifelse(p == -1, -1, (count + 1) / (p + v) ))  
-}
 
 smooth_add_one_count <- function(df) {  
   N <- sum(df$count)
@@ -221,9 +109,6 @@ smooth_witten_bell <- function(df) {
   df
 }
 
-smooth_good_turing <- function(df) {
-  df
-}
 ```
 
 ### Data Processing
@@ -355,17 +240,11 @@ rm(gq)
 
 ```{r, echo=T, message=F, warning=F, cache=T}
 # quiz3
-
-evaluate_quiz <- function(master, quiz, threshold = 0.01) {
-  l <- next_word(master, quiz[,1], 0.001)
-  vector <- rep(NA, nrow(quiz))
-  for (i in 1:nrow(quiz3)) {
-    vector[i] <- paste(intersect(l[[i]], c(quiz[i,2], quiz[i,3], quiz[i,4], quiz[i,5])), collapse = " ")
-  }
-  vector
-}
 quiz3 <- read.csv("quiz3", stringsAsFactors = F, header = T, sep=";")
-evaluate_quiz(master, quiz3, threshold = 0.01)
+en_US_model <- create_model("final/en_US/selected_en_US_cleanup_*")
+en_US_model <- lm_train(en_US_model)
+
+evaluate_quiz(en_US_model, quiz3)
 ```
 ##What's next?
 + Scaling up the sample size from 2% in stages to 5%, 10%, 20% etc..
