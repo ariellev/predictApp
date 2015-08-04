@@ -19,6 +19,14 @@ prefix_str <- function(mStr, n) {
   sapply(mStr, function(x){ v <- unlist(strsplit(x, "[ ]+")); m <- min(length(v), n); if (m == 0) "" else stri_flatten(v[1:m], collapse = " ")})
 }
 
+prefix_str_n_minus_one <- function(mStr) {
+  print(paste0(Sys.time(), " splitting"))  
+  vec <- sapply(mStr, function(x){ unlist(strsplit(x, "[ ]+")) })
+  print(paste0(Sys.time(), " truncating"))  
+  vec <- sapply( vec, function(v){ m <- length(v) - 1; if (m < 1) "" else stri_flatten(v[1:m], collapse = " ") })
+  vec
+}
+
 suffix <- function(mStr, n) {
   suffixes <- rep("", length(mStr))
   if (n > 0) {

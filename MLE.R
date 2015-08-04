@@ -7,7 +7,7 @@ train_MLE_base <- function(model, payload = NULL) {
 
 # calculates likelihood using relative frequencies
 train_MLE <- function(df, df_prefix, payload = NULL) {
-  n <- df[1,3]$n
+  n <- df[1,3]
   total <- sum(df$count)
   
   h_counts <- hash(df_prefix$term, df_prefix$count)
