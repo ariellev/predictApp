@@ -20,11 +20,15 @@ prefix_str <- function(mStr, n) {
 }
 
 prefix_str_n_minus_one <- function(mStr) {
-  print(paste0(Sys.time(), " splitting"))  
-  vec <- sapply(mStr, function(x){ unlist(strsplit(x, "[ ]+")) })
-  print(paste0(Sys.time(), " truncating"))  
-  vec <- sapply( vec, function(v){ m <- length(v) - 1; if (m < 1) "" else stri_flatten(v[1:m], collapse = " ") })
+  vec <- parSapply(mStr, function(x){ unlist(strsplit(x, "[ ]+")) })
+  vec <- parSapply(vec, function(v){ m <- length(v) - 1; stri_flatten(v[1:m], collapse = " ") })
   vec
+}
+
+prefix_1 <- function(mStr) {
+  v <- unlist(strsplit(mStr, "[ ]+"))
+  m <- length(v) - 1
+  stri_flatten(v[1:m], collapse = " ")
 }
 
 suffix <- function(mStr, n) {
