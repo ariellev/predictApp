@@ -43,6 +43,31 @@ code {
 
 button[id*="text"] {
   font-size: 22pt;
+  vertical-align: bottom;
+}
+
+button[id*="text1"] {
+  font-size: 22pt;
+}
+
+button[id*="text2"] {
+  font-size: 21pt;
+}
+
+button[id*="text3"] {
+  font-size: 20pt;
+}
+
+button[id*="text4"] {
+  font-size: 19pt;
+}
+
+button[id*="text5"] {
+  font-size: 18pt;
+}
+
+button[id*="text6"] {
+  font-size: 17pt;
 }
 
 input[id*="textInput"] {
