@@ -44,6 +44,8 @@ code {
 button[id*="text"] {
   font-size: 22pt;
   vertical-align: bottom;
+  margin-top: 5px;
+  margin-bottom: 5px;  
 }
 
 button[id*="text1"] {

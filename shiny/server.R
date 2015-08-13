@@ -2,8 +2,8 @@ print(paste(Sys.time(), "starting application"))
 require(stringi)
 require(hash)
 load("model_s.RData")
-# load("dictionary.RData")
 
+history_template <- readLines("history_template.txt")
 suffix <- function(mStr, n) {
   suffixes <- rep("", length(mStr))
   if (n > 0) {
@@ -45,7 +45,7 @@ trim <- function (x) gsub("^\\s+|\\s+$", "", x)
 
 # uses stupid backoff
 lm_predict_hash <- function(model_hash, sentences, prefix, n = 3) {
-  sentences <- gsub("[^A-Za-z .']", "", sentences)
+  sentences <- gsub("[^a-z .']", "", tolower(sentences))
 #  TOOD: add filter prefixes <- filter(prefixes)
   predictions <- list()
   for (i in 1:length(sentences)) {    
@@ -110,6 +110,7 @@ find_candidates <- function(sentence, prefix, n = 3) {
   uq <- unique(candidates[[1]])
   length_uq <- length(uq)
   uq[1:min(length_uq, n)]
+#  strsplit("afternoon   up this afternoon", "[ ]+")[[1]]
 }
 
 resolve_current_sentence <- function(sentence) {
@@ -136,11 +137,32 @@ predict <- function(sentence, n = 3) {
 
 #preds <- predict("")
 max_predictions <- 6
+
 print(paste(Sys.time(), "startup completed"))
 shinyServer(
   function(input, output, session) {
     #  initalization with most common unigrams ;|the|and|to|of|in|for|that
-    v <- reactiveValues(i = 0, clicked = NULL, preds = c("the", "and", "to"))
+    v <- reactiveValues(i = 0, clicked = NULL, preds = c(), history = c())
+    
+    observeEvent(input$post, {
+      text <- isolate(input$textInput)
+      if(nchar(trim(text)) > 0) {
+        v$history <- c(v$history, text)      
+        html <- sapply(v$history, function(x) sprintf(history_template, x))
+        output$history <- renderUI(HTML(html))
+        updateTextInput(session, "textInput", value  = "")        
+      }
+    })
+    
+    observeEvent(input$clear, {
+      updateTextInput(session, "textInput", value  = "")        
+    })
+    
+    observeEvent(input$reset, {
+      v$history <- c()      
+      output$history <- renderUI(HTML(''))
+      updateTextInput(session, "textInput", value  = "")        
+    })
     
     observe({
       text <- isolate(input$textInput)
@@ -148,7 +170,7 @@ shinyServer(
       textEndsWithSpaces <- endsWithSpaces(text)
       
       print("---------------------")
-      print("item was clicked")      
+      print("Button click")      
       print("---------------------")
       print(paste0("clicked=", clicked))       
       print(paste0("input=", text))       
@@ -171,40 +193,30 @@ shinyServer(
       
       updateTextInput(session, "textInput", value  = text)      
     })
-
+    
     observe({
       print("---------------------")
-      print("user types..")      
+      print("new input")      
       print("---------------------")      
       v$preds <- predict(input$textInput, max_predictions)
-          
+      
       if (!is.null(v$preds[[1]])){
-      output$buttons <- renderUI({
-           box(width=12, height=75, solidHeader = T,  
-               if (!is.na(v$preds[1])) div(style="display:inline-block;", actionButton("text1", v$preds[1])), 
-               if (!is.na(v$preds[2])) div(style="display:inline-block;", actionButton("text2", v$preds[2])), 
-               if (!is.na(v$preds[3])) div(style="display:inline-block;", actionButton("text3", v$preds[3])),
-               if (!is.na(v$preds[4])) div(style="display:inline-block;", actionButton("text4", v$preds[4])),
-               if (!is.na(v$preds[5])) div(style="display:inline-block;", actionButton("text5", v$preds[5])),
-               if (!is.na(v$preds[6])) div(style="display:inline-block;", actionButton("text6", v$preds[6]))
-               )                
+        session$sendCustomMessage(type = "display_predictions", "message")
+        output$buttons <- renderUI({
+          box(width=12, solidHeader = T,  div(style="min-height:75; overflow: auto; display:inline-block;",
+              if (!is.na(v$preds[1])) actionButton("text1", v$preds[1])), 
+              if (!is.na(v$preds[2])) actionButton("text2", v$preds[2]), 
+              if (!is.na(v$preds[3])) actionButton("text3", v$preds[3]),
+              if (!is.na(v$preds[4])) actionButton("text4", v$preds[4]),
+              if (!is.na(v$preds[5])) actionButton("text5", v$preds[5]),
+              if (!is.na(v$preds[6])) actionButton("text6", v$preds[6])
+          )                
         })   
       } else {
         output$buttons <- renderUI({box(width=12, height=75, solidHeader = T)})      
       }
     })
-    
-    observe({
-      print("---------------------")
-      print("pin")      
-      print("---------------------")  
-      output$pinned <- renderUI(
-        #text <- isolate(input$textInput),
-        #updateTextInput(session, "textInput", value  = ""),
-        h2(isolate(input$textInput))
-      )      
-    })
-        
+              
     observeEvent(input$text1, {
       v$clicked <- v$preds[1]
     })
