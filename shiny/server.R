@@ -51,7 +51,7 @@ lm_predict_hash <- function(model_hash, sentences, prefix, n = 3) {
   for (i in 1:length(sentences)) {    
     sentence <- trim(sentences[i])
     vector <- unlist(strsplit(sentence, "[ ]+")) 
-    l <- max(length(vector), 1)
+    l <- length(vector)#max(length(vector), 1)
     from <-  min(l,3)
     res <- c()
     for (k in from:0) {
@@ -60,8 +60,9 @@ lm_predict_hash <- function(model_hash, sentences, prefix, n = 3) {
       if (is.na(key) || key == "")
         key <- "<NA>"
       a <- find_decoded_candidates(model_hash[[key]], prefix, n)  
-      #print(paste0("class_a=",class(a)))
       res <- c(res, a[!is.na(a)])
+      print(paste0("res=",res))
+      
     }
     #print(paste0("res1=",res))
     unq <- unique(res)
@@ -110,7 +111,7 @@ find_candidates <- function(sentence, prefix, n = 3) {
   uq <- unique(candidates[[1]])
   length_uq <- length(uq)
   uq[1:min(length_uq, n)]
-#  strsplit("afternoon   up this afternoon", "[ ]+")[[1]]
+  #strsplit("pred1 pred2 pred3 pred4", "[ ]+")[[1]]
 }
 
 resolve_current_sentence <- function(sentence) {
@@ -196,14 +197,14 @@ shinyServer(
     
     observe({
       print("---------------------")
-      print("new input")      
+      print("Input changed")      
       print("---------------------")      
       v$preds <- predict(input$textInput, max_predictions)
       
       if (!is.null(v$preds[[1]])){
         session$sendCustomMessage(type = "display_predictions", "message")
         output$buttons <- renderUI({
-          box(width=12, solidHeader = T,  div(style="min-height:75; overflow: auto; display:inline-block;",
+          box(width=12, solidHeader = T,  div(style="min-height:75; display:inline-block;",
               if (!is.na(v$preds[1])) actionButton("text1", v$preds[1])), 
               if (!is.na(v$preds[2])) actionButton("text2", v$preds[2]), 
               if (!is.na(v$preds[3])) actionButton("text3", v$preds[3]),

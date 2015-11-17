@@ -1,0 +1,1 @@
+<div class="col-sm-12"> <div class="box box-solid" style="min-height: 35px; line-height: 35px; overflow: scroll; font-size: 16pt"> <div style="vertical-align: middle;"><div id="wall" style="vertical-align: middle;   margin-left: 10pt;">%s</div></div></div></div></div>

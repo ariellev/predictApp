@@ -45,6 +45,11 @@ button[id*="text"] {
   font-size: 22pt;
 }
 
+button[id*="sec_text"] {
+  font-size: 12pt;
+  font-color: blue;
+}
+
 input[id*="textInput"] {
   font-size: 14pt;
 }

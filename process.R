@@ -57,50 +57,6 @@ filter <- function(data) {
         split <- paste(split, collapse = " ")        
         split
   })
-#   for (i in 1:length(data)) {
-#     line <- data[i]
-#     split <- unlist(strsplit(line, "[ ]+"))
-#     
-#     idx <- which(nchar(split) > 0)
-#     split <- split[idx]
-#     
-#     if (length(split) > 0) {
-#       idx <- sapply(split, function(x) {
-#         if (has.key(x, dictionary_hash)) return(TRUE)
-#         
-#         # contractions
-#         contractions <- grep("i'(ll|m|d|ve)$|(he|she|it)'(ll|s|d)$|(you|we|they)'(ll|re|d|ve)$|(is|are|ca|could|would|do|does|did|have|has|wo|were|should|was|had)n't$|(what|who)'(s)$", x)
-#         if (length(contractions) > 0) {
-#           dictionary_hash[[x]] <- ""          
-#           return(TRUE)          
-#         }
-#         
-#         # stemming
-#         stemmed <- wordStem(x)        
-#         # removing possesive
-#         stemmed <- gsub("'$", "", stemmed)  
-#         # babies -> babi -> babi(i|y)
-#         stemmed <- gsub("i$", "(i|y)", stemmed)
-#         if (sum(grepl(paste0("^(", stemmed, ")"), dictionary)) > 0) {
-#           #if (length(stemmed) > 0) {     
-#             #print(paste0("stemmed=", stemmed))
-#             #dictionary_hash[[stemmed]] <- ""
-#           #}
-#           return (TRUE)
-#         }
-#                 
-#         return (FALSE)
-#       })
-#       split <- split[idx]
-#       
-#       idx <- which(!has.key(split, profanity_hash))
-#       split <- split[idx]               
-#     }
-#     
-#     split <- paste(split, collapse = " ")
-#     filtered[i] <- split
-#   }
-
   filtered[nchar(filtered) > 0]
 }
 
@@ -225,11 +181,26 @@ aggregate_model <- function(pattern) {
 }
 
 # post process
-# cat master_small | awk -f ../post_processing.awk >> model_post
-# master <- fread("model_post")
-# setnames(master,c("prefix", "next", "p", "encoded") )
-# master <- group_by(master, prefix) %>% arrange(prefix, desc(p))
-# sm <- master %>% summarize(encoded = stri_flatten(encoded, collapse = ";"))
-# sm$prefix[1] <- "<NA>"
-# model_hash <- hash(keys = sm$prefix, values = sm$encoded)
+# probabilty, likelihood
+# export LC_ALL=C
+# time cat aggregated_model_en_US_05_08_2015_12_55_35 | awk -f processing_counts.awk | awk -f processing_probability.awk > process_out_long
+# cat process_out_long | awk -f processing_post_0.awk | sort -t";" -gr -k3 | awk -f processing_post_1.awk > final_model
+
+# model <- fread("final_model", sep=";", header = F)
+# setnames(model,c("prefix", "encoded") )
+# model$prefix[1] <- "<NA>"
+# model_hash <- hash(keys = model$prefix, values = model$encoded)
 # save(model_hash, file = "model.RData", compress = T)
+
+create_hash_model <- function(model) {
+  model <- fread("final_model_long", sep=";", header = F)
+  setnames(model,c("prefix", "encoded"))
+  model$prefix[1] <- "<NA>"
+  hm <- head(model)
+  db <- dbCreate("lan_model") 
+  db <- dbInit("lan_model")
+  
+  cluster <- makeCluster(detectCores() - 4, type="FORK")
+  parApply(cluster, hm, 1, function(x) dbInsert(db, x[1], x[2]))
+  stopCluster(cluster)   
+}

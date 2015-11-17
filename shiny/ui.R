@@ -1,10 +1,20 @@
 require(shinydashboard)
 
-header <- dashboardHeader(title = "Capstone")
+header <- dashboardHeader(title = "PredictApp")
 
 sidebar <- dashboardSidebar(
-  h4("Language modelling", style  = "margin: 20px 10px 0px 10px; color:#cccccc;line-height: 140%;"),
-  h6("Data cleaning, model and ShinyApp by Ariel Lev.", style  = "margin: 20px 10px 0px 10px; color:#cccccc;line-height: 140%;")  )
+  h4("Data Science Capstone", style  = "margin: 40px 10px 0px 10px; color:#cccccc;line-height: 100%;"),
+  h4("Coursera", style  = "margin: 5px 10px 0px 10px; color:#cccccc;line-height: 140%;"),
+  
+  h6("The language model was developed on a sample of 15 thousand (0.3%) sentences taken from HC Corpora corpus. 
+      The corpus was assembled by crawling twitter, blog and news websites. I removed profanity and non-alphabetic tokens, 
+      and trained unigram, bigram, trigram and 4-gram by assigning maximum-likelihood probabilities.
+      Model produced 532.5k unigrams and 24.9k word types.", style  = "margin: 20px 10px 0px 10px; color:#cccccc;line-height: 140%;"),  
+  h6("github.com/ariellev/predictApp", style  = "margin: 20px 10px 0px 10px; color:#cccccc;line-height: 140%; display:block"),
+  h6("Ariel Lev", style  = "margin: 20px 10px 0px 10px; color:#cccccc;line-height: 140%;")
+  )
+  #,
+  #h6("Data cleaning, model and ShinyApp by Ariel Lev.", style  = "margin: 20px 10px 0px 10px; color:#cccccc;line-height: 140%;")  )
 
 body <- dashboardBody(
   includeCSS("style.css"),
@@ -23,11 +33,12 @@ body <- dashboardBody(
            ),
   div(style="height: 100%; display: block", id="pleaseWait", 
       fluidRow(
-        box(width=12, height=75, solidHeader = T,  
-            div(style="display:inline-block;", actionButton("text4_loading", "Please")), 
-            div(style="display:inline-block;", actionButton("text5_loading", "wait")),             
-            div(style="display:inline-block;", actionButton("text6_loading", "Loading")),
-            div(style="display:inline-block;", actionButton("text6_loading", "..."))          
+        box(width=12, height=75, solidHeader = T,  div(style="display:inline-block;",
+            actionButton("text5_loading", "Please"), 
+            actionButton("text6_loading", "wait"),
+            actionButton("text4_loading", "while"),            
+            actionButton("text6_loading", "Loading"),
+            actionButton("text6_loading", "..."))          
             )
         )
     ),
